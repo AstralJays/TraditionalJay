@@ -150,5 +150,5 @@ output "security_url" {
 }
 
 output "upwind_sensor_bootstrap" {
-  value = var.upwind_client_id != "" ? "enabled (host sensor via cloud-init)" : "disabled (set upwind_client_id/secret)"
+  value = nonsensitive(var.upwind_client_id) != "" ? "enabled (host sensor via cloud-init)" : "disabled (set upwind_client_id/secret)"
 }
