@@ -18,49 +18,97 @@
   <main class="wrap narrow">
     <h1>Exploit lab</h1>
     <p class="lede">
-      VM-hosted Java shop for host / sensor workshops. Primary story:
-      <strong>Log4Shell (CVE-2021-44228)</strong> via Log4j <code>2.14.1</code>.
+      Critical VM Compromise on a host sensor’d box:
+      <strong>SQL injection → Log4Shell → reverse shell to external C2</strong>.
     </p>
 
     <section class="card-ish">
-      <p class="badge">Story 1 · Log4Shell</p>
-      <h2>Trigger a JNDI LDAP lookup</h2>
+      <p class="badge">Story · Critical VM Compromise</p>
+      <h2>Full chain</h2>
       <p>
-        Workshop-safe: the app logs <code>${jndi:ldap://…}</code> so the vulnerable
-        Log4j attempts an outbound LDAP connect. Run a listener on your laptop
-        (or another lab host), then fire the probe.
+        Runs all three steps with short gaps so detections can split cleanly.
+        Point listeners at hosts the VM can reach before you click.
       </p>
-      <label for="callback">Callback host:port</label>
-      <input id="callback" type="text" value="127.0.0.1:1389" />
+      <label for="ldap">Log4Shell LDAP callback (host:port)</label>
+      <input id="ldap" type="text" value="127.0.0.1:1389" />
+      <label for="c2">Reverse-shell C2 callback (host:port)</label>
+      <input id="c2" type="text" value="127.0.0.1:4444" />
       <div class="row">
-        <button id="run" type="button">Run Log4Shell probe</button>
+        <button id="run-chain" type="button">Run Critical VM Compromise</button>
       </div>
-      <pre id="result" class="result" hidden></pre>
       <ol class="steps">
-        <li>On a host the VM can reach: <code>python3 tools/ldap-listen.py --port 1389</code></li>
-        <li>Set callback to <code>YOUR_IP:1389</code> and run the probe.</li>
-        <li>Watch Java dial LDAP — SCA should already flag Log4j 2.14.1.</li>
+        <li><code>python3 tools/ldap-listen.py --port 1389</code></li>
+        <li><code>python3 tools/c2-listen.py --port 4444</code></li>
+        <li>Set callbacks to your public IP (or SSH tunnel), then run the story.</li>
       </ol>
+      <pre id="chain-result" class="result" hidden></pre>
+    </section>
+
+    <section class="card-ish" style="margin-top:1.25rem">
+      <p class="badge">Step 1 · CWE-89</p>
+      <h2>SQL injection</h2>
+      <p>UNION SELECT against the SQLite catalog dumps workshop secrets.</p>
+      <div class="row">
+        <button id="run-sqli" type="button">Run SQLi</button>
+      </div>
+      <pre id="sqli-result" class="result" hidden></pre>
+    </section>
+
+    <section class="card-ish" style="margin-top:1.25rem">
+      <p class="badge">Step 2 · CVE-2021-44228</p>
+      <h2>Log4Shell</h2>
+      <p>JNDI LDAP lookup from Log4j <code>2.14.1</code>.</p>
+      <div class="row">
+        <button id="run-log4j" type="button">Run Log4Shell</button>
+      </div>
+      <pre id="log4j-result" class="result" hidden></pre>
+    </section>
+
+    <section class="card-ish" style="margin-top:1.25rem">
+      <p class="badge">Step 3 · Reverse shell</p>
+      <h2>Outbound shell to C2</h2>
+      <p>Short-lived <code>bash /dev/tcp</code> dial to your listener (workshop-safe timeout).</p>
+      <div class="row">
+        <button id="run-rev" type="button">Run reverse shell</button>
+      </div>
+      <pre id="rev-result" class="result" hidden></pre>
     </section>
 
     <p class="foot"><a href="/">← Back to shop</a></p>
   </main>
 
   <script>
-    document.getElementById('run').addEventListener('click', async () => {
-      const callback = document.getElementById('callback').value.trim();
-      const result = document.getElementById('result');
-      result.hidden = false;
-      result.textContent = 'Running…';
+    async function postJson(url, resultId) {
+      const el = document.getElementById(resultId);
+      el.hidden = false;
+      el.textContent = 'Running…';
       try {
-        const res = await fetch('/api/demo/log4shell?callback=' + encodeURIComponent(callback), {
-          method: 'POST'
-        });
+        const res = await fetch(url, { method: 'POST' });
         const data = await res.json();
-        result.textContent = JSON.stringify(data, null, 2);
+        el.textContent = JSON.stringify(data, null, 2);
       } catch (err) {
-        result.textContent = String(err);
+        el.textContent = String(err);
       }
+    }
+
+    document.getElementById('run-sqli').addEventListener('click', () => {
+      postJson("/api/demo/sqli", "sqli-result");
+    });
+    document.getElementById('run-log4j').addEventListener('click', () => {
+      const ldap = document.getElementById('ldap').value.trim();
+      postJson("/api/demo/log4shell?callback=" + encodeURIComponent(ldap), "log4j-result");
+    });
+    document.getElementById('run-rev').addEventListener('click', () => {
+      const c2 = document.getElementById('c2').value.trim();
+      postJson("/api/demo/reverse-shell?callback=" + encodeURIComponent(c2), "rev-result");
+    });
+    document.getElementById('run-chain').addEventListener('click', () => {
+      const ldap = document.getElementById('ldap').value.trim();
+      const c2 = document.getElementById('c2').value.trim();
+      const url = "/api/demo/critical-vm-compromise"
+        + "?ldap_callback=" + encodeURIComponent(ldap)
+        + "&c2_callback=" + encodeURIComponent(c2);
+      postJson(url, "chain-result");
     });
   </script>
 </body>
