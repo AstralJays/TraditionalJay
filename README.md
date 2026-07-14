@@ -47,9 +47,23 @@ curl -s "http://localhost:8080/search?q=wax" \
   -H 'User-Agent: ${jndi:ldap://127.0.0.1:1389/a}' -o /dev/null
 ```
 
+## CI
+
+GitHub Actions workflow [`.github/workflows/build.yml`](.github/workflows/build.yml):
+
+- **push / PR / manual** → Maven package + upload JAR artifact  
+- **tag `v*`** → GitHub Release with the fat JAR  
+
+VMs prefer the latest Release JAR via `scripts/install-vm.sh`, and fall back to an on-box Maven build if no release exists yet.
+
+```bash
+# cut a release (triggers JAR publish)
+git tag v0.1.0 && git push origin v0.1.0
+```
+
 ## Deploy to a cloud VM
 
-Each cloud folder is standalone Terraform. First boot clones this repo and runs `scripts/install-vm.sh` (OpenJDK 11 + Maven build + systemd).
+Each cloud folder is standalone Terraform. First boot runs `scripts/install-vm.sh` (OpenJDK 11 + Release JAR or Maven build + systemd).
 
 ### AWS (EC2)
 
