@@ -1,0 +1,3 @@
+# Example — copy to terraform.tfvars
+ssh_public_key = "ssh-ed25519 AAAA... your-key"
+location       = "eastus"

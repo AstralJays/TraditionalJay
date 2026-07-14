@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Exploit lab — TraditionalJay</title>
+  <link rel="stylesheet" href="/styles.css"/>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">TraditionalJay</div>
+    <nav>
+      <a href="/">Shop</a>
+      <a href="/security">Exploit lab</a>
+    </nav>
+  </header>
+
+  <main class="wrap narrow">
+    <h1>Exploit lab</h1>
+    <p class="lede">
+      VM-hosted Java shop for host / sensor workshops. Primary story:
+      <strong>Log4Shell (CVE-2021-44228)</strong> via Log4j <code>2.14.1</code>.
+    </p>
+
+    <section class="card-ish">
+      <p class="badge">Story 1 · Log4Shell</p>
+      <h2>Trigger a JNDI LDAP lookup</h2>
+      <p>
+        Workshop-safe: the app logs <code>${jndi:ldap://…}</code> so the vulnerable
+        Log4j attempts an outbound LDAP connect. Run a listener on your laptop
+        (or another lab host), then fire the probe.
+      </p>
+      <label for="callback">Callback host:port</label>
+      <input id="callback" type="text" value="127.0.0.1:1389" />
+      <div class="row">
+        <button id="run" type="button">Run Log4Shell probe</button>
+      </div>
+      <pre id="result" class="result" hidden></pre>
+      <ol class="steps">
+        <li>On a host the VM can reach: <code>python3 tools/ldap-listen.py --port 1389</code></li>
+        <li>Set callback to <code>YOUR_IP:1389</code> and run the probe.</li>
+        <li>Watch Java dial LDAP — SCA should already flag Log4j 2.14.1.</li>
+      </ol>
+    </section>
+
+    <p class="foot"><a href="/">← Back to shop</a></p>
+  </main>
+
+  <script>
+    document.getElementById('run').addEventListener('click', async () => {
+      const callback = document.getElementById('callback').value.trim();
+      const result = document.getElementById('result');
+      result.hidden = false;
+      result.textContent = 'Running…';
+      try {
+        const res = await fetch('/api/demo/log4shell?callback=' + encodeURIComponent(callback), {
+          method: 'POST'
+        });
+        const data = await res.json();
+        result.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        result.textContent = String(err);
+      }
+    });
+  </script>
+</body>
+</html>

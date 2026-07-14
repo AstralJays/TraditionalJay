@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>TraditionalJay — Jay's Surf Shop (classic)</title>
+  <link rel="stylesheet" th:href="@{/styles.css}"/>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">TraditionalJay</div>
+    <nav>
+      <a href="/">Shop</a>
+      <a href="/security">Exploit lab</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <h1>Jay's Surf Shop</h1>
+    <p class="lede">Classic on-prem vibe — Java on a VM. Search logs every query with Log4j 2.14.1.</p>
+
+    <form class="search" method="get" action="/search">
+      <label for="q">Search boards &amp; gear</label>
+      <div class="row">
+        <input id="q" name="q" type="text" th:value="${q}" placeholder="e.g. wax, longboard, SB-PP"/>
+        <button type="submit">Search</button>
+      </div>
+    </form>
+
+    <p class="hint" th:if="${logged}">Query was written to application logs (vulnerable message lookup path).</p>
+
+    <ul class="catalog">
+      <li th:each="p : ${products}">
+        <strong th:text="${p.name}">Board</strong>
+        <span class="sku" th:text="${p.sku}">SKU</span>
+        <span class="price" th:text="'$' + ${p.price}">$0</span>
+      </li>
+    </ul>
+  </main>
+</body>
+</html>
