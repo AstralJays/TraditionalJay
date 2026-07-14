@@ -71,17 +71,23 @@ If creds are empty, the app still installs and the sensor step is skipped.
 
 ## CI
 
-GitHub Actions workflow [`.github/workflows/build.yml`](.github/workflows/build.yml):
+GitHub Actions:
 
-- **push / PR / manual** → Maven package + upload JAR artifact  
-- **tag `v*`** → GitHub Release with the fat JAR  
+| Workflow | Trigger | What it does |
+|----------|---------|----------------|
+| [`.github/workflows/build.yml`](.github/workflows/build.yml) | push / PR / tag / manual | Maven JAR + **Upwind Shift Left** Docker image scan |
+| [`.github/workflows/upwind-scan.yml`](.github/workflows/upwind-scan.yml) | manual | Same image scan on demand (JaysSurfShop-style) |
 
-VMs prefer the latest Release JAR via `scripts/install-vm.sh`, and fall back to an on-box Maven build if no release exists yet.
+Requires repo Actions secrets: `UPWIND_CLIENT_ID`, `UPWIND_CLIENT_SECRET`.
+
+Also install the **Upwind GitHub App** on this repository (same as the other AstralJays Jay shops) so Shift Left results land in your org.
 
 ```bash
-# cut a release (triggers JAR publish)
+# cut a release JAR for VMs
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+VMs prefer the latest Release JAR via `scripts/install-vm.sh`, and fall back to an on-box Maven build if no release exists yet.
 
 ## Deploy to a cloud VM
 

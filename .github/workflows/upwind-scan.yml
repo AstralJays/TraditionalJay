@@ -1,0 +1,61 @@
+name: Upwind Manual Image Scan
+
+# Manual SCA scan via Upwind Shift Left — same pattern as JaysSurfShop.
+# Builds the TraditionalJay Docker image on the runner, then scans it.
+#
+# Requires repo Actions secrets:
+#   UPWIND_CLIENT_ID
+#   UPWIND_CLIENT_SECRET
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Local image tag suffix
+        type: string
+        default: latest
+
+env:
+  IMAGE_NAME: traditionaljay
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  scan:
+    name: Scan traditionaljay
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check Upwind credentials
+        env:
+          UPWIND_CLIENT_ID: ${{ secrets.UPWIND_CLIENT_ID }}
+          UPWIND_CLIENT_SECRET: ${{ secrets.UPWIND_CLIENT_SECRET }}
+        run: |
+          if [ -z "$UPWIND_CLIENT_ID" ] || [ -z "$UPWIND_CLIENT_SECRET" ]; then
+            echo "::error::Add UPWIND_CLIENT_ID and UPWIND_CLIENT_SECRET to this repo's Actions secrets."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        id: image
+        run: |
+          TAG="${{ env.IMAGE_NAME }}:${{ inputs.image_tag }}"
+          docker build -t "$TAG" ./app
+          echo "ref=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Scan target: ${TAG}"
+
+      - name: Shift Left Image Scan
+        uses: upwindsecurity/shiftleft-create-image-scan-event-action@main
+        with:
+          upwind_client_id: ${{ secrets.UPWIND_CLIENT_ID }}
+          upwind_client_secret: ${{ secrets.UPWIND_CLIENT_SECRET }}
+          docker_image: ${{ steps.image.outputs.ref }}
+          pull_image: false
+          use_sudo: false
+          commit_sha: ${{ github.sha }}
