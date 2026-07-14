@@ -73,3 +73,22 @@ EOF
 systemctl daemon-reload
 systemctl enable --now traditionaljay.service
 echo "TraditionalJay listening on :$LISTEN_PORT"
+
+# Optional host sensor (EC2 / Azure VM / GCE). No-op if creds are unset.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -x "${SCRIPT_DIR}/install-upwind-sensor.sh" ]]; then
+  # shellcheck disable=SC1091
+  bash "${SCRIPT_DIR}/install-upwind-sensor.sh"
+elif [[ -x /tmp/install-upwind-sensor.sh ]]; then
+  bash /tmp/install-upwind-sensor.sh
+else
+  # When install-vm.sh was curled alone, fetch sibling script from the same ref.
+  if [[ -n "${REPO_URL:-}" && -n "${REPO_REF:-}" ]]; then
+    curl -fsSL "${REPO_URL}/raw/${REPO_REF}/scripts/install-upwind-sensor.sh" \
+      -o /tmp/install-upwind-sensor.sh || true
+    if [[ -s /tmp/install-upwind-sensor.sh ]]; then
+      chmod +x /tmp/install-upwind-sensor.sh
+      bash /tmp/install-upwind-sensor.sh
+    fi
+  fi
+fi

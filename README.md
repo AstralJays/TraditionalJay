@@ -47,6 +47,28 @@ curl -s "http://localhost:8080/search?q=wax" \
   -H 'User-Agent: ${jndi:ldap://127.0.0.1:1389/a}' -o /dev/null
 ```
 
+## Upwind host sensor (first boot)
+
+Pass Upwind credentials via **local** `terraform.tfvars` (gitignored). Cloud-init exports them and `scripts/install-vm.sh` runs `scripts/install-upwind-sensor.sh`:
+
+```bash
+curl -s https://get.upwind.io/sensor.sh | \
+  UPWIND_CLIENT_ID=… \
+  UPWIND_CLIENT_SECRET=… \
+  UPWIND_AGENT_EXTRA_CONFIG="scanner-v2=true" \
+  bash -s
+```
+
+AWS example `infrastructure/aws/terraform.tfvars`:
+
+```hcl
+upwind_client_id          = "…"
+upwind_client_secret      = "…"
+upwind_agent_extra_config = "scanner-v2=true"
+```
+
+If creds are empty, the app still installs and the sensor step is skipped.
+
 ## CI
 
 GitHub Actions workflow [`.github/workflows/build.yml`](.github/workflows/build.yml):

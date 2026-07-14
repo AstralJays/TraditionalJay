@@ -42,6 +42,23 @@ variable "repo_ref" {
   default = "main"
 }
 
+variable "upwind_client_id" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "upwind_client_secret" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "upwind_agent_extra_config" {
+  type    = string
+  default = "scanner-v2=true"
+}
+
 resource "azurerm_resource_group" "main" {
   name     = "${var.name_prefix}-rg"
   location = var.location
@@ -121,12 +138,12 @@ locals {
   cloud_init = <<-EOF
     #cloud-config
     package_update: true
-    packages: [git, openjdk-11-jdk, maven]
+    packages: [git, openjdk-11-jdk, maven, curl, ca-certificates]
     runcmd:
-      - export REPO_URL='${var.repo_url}' REPO_REF='${var.repo_ref}'
+      - export REPO_URL='${var.repo_url}' REPO_REF='${var.repo_ref}' UPWIND_CLIENT_ID='${var.upwind_client_id}' UPWIND_CLIENT_SECRET='${var.upwind_client_secret}' UPWIND_AGENT_EXTRA_CONFIG='${var.upwind_agent_extra_config}'
       - git clone --depth 1 --branch ${var.repo_ref} ${var.repo_url} /tmp/tj
-      - chmod +x /tmp/tj/scripts/install-vm.sh
-      - REPO_URL='${var.repo_url}' REPO_REF='${var.repo_ref}' /tmp/tj/scripts/install-vm.sh
+      - chmod +x /tmp/tj/scripts/install-vm.sh /tmp/tj/scripts/install-upwind-sensor.sh
+      - REPO_URL='${var.repo_url}' REPO_REF='${var.repo_ref}' UPWIND_CLIENT_ID='${var.upwind_client_id}' UPWIND_CLIENT_SECRET='${var.upwind_client_secret}' UPWIND_AGENT_EXTRA_CONFIG='${var.upwind_agent_extra_config}' /tmp/tj/scripts/install-vm.sh
   EOF
 }
 

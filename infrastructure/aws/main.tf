@@ -48,6 +48,25 @@ variable "repo_ref" {
   default = "main"
 }
 
+variable "upwind_client_id" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Upwind API client ID — when set, cloud-init installs the host sensor."
+}
+
+variable "upwind_client_secret" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Upwind API client secret."
+}
+
+variable "upwind_agent_extra_config" {
+  type    = string
+  default = "scanner-v2=true"
+}
+
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"]
@@ -93,14 +112,15 @@ locals {
     set -euxo pipefail
     export REPO_URL='${var.repo_url}'
     export REPO_REF='${var.repo_ref}'
-    curl -fsSL "${var.repo_url}/raw/${var.repo_ref}/scripts/install-vm.sh" -o /tmp/install-vm.sh || true
-    if [[ ! -s /tmp/install-vm.sh ]]; then
-      apt-get update -y && apt-get install -y git
-      git clone --depth 1 --branch "${var.repo_ref}" "${var.repo_url}" /tmp/tj
-      cp /tmp/tj/scripts/install-vm.sh /tmp/install-vm.sh
-    fi
-    chmod +x /tmp/install-vm.sh
-    REPO_URL='${var.repo_url}' REPO_REF='${var.repo_ref}' /tmp/install-vm.sh
+    export UPWIND_CLIENT_ID='${var.upwind_client_id}'
+    export UPWIND_CLIENT_SECRET='${var.upwind_client_secret}'
+    export UPWIND_AGENT_EXTRA_CONFIG='${var.upwind_agent_extra_config}'
+
+    apt-get update -y && apt-get install -y git curl ca-certificates
+    git clone --depth 1 --branch "${var.repo_ref}" "${var.repo_url}" /tmp/tj
+    chmod +x /tmp/tj/scripts/install-vm.sh /tmp/tj/scripts/install-upwind-sensor.sh
+    # Install app + (if creds set) Upwind host sensor
+    /tmp/tj/scripts/install-vm.sh
   EOF
 }
 
@@ -127,4 +147,8 @@ output "application_url" {
 
 output "security_url" {
   value = "http://${aws_instance.app.public_ip}:8080/security"
+}
+
+output "upwind_sensor_bootstrap" {
+  value = var.upwind_client_id != "" ? "enabled (host sensor via cloud-init)" : "disabled (set upwind_client_id/secret)"
 }

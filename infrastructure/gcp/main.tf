@@ -43,6 +43,23 @@ variable "repo_ref" {
   default = "main"
 }
 
+variable "upwind_client_id" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "upwind_client_secret" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "upwind_agent_extra_config" {
+  type    = string
+  default = "scanner-v2=true"
+}
+
 resource "google_compute_network" "main" {
   name                    = "${var.name_prefix}-vpc"
   auto_create_subnetworks = false
@@ -74,11 +91,14 @@ locals {
     set -euxo pipefail
     export REPO_URL='${var.repo_url}'
     export REPO_REF='${var.repo_ref}'
+    export UPWIND_CLIENT_ID='${var.upwind_client_id}'
+    export UPWIND_CLIENT_SECRET='${var.upwind_client_secret}'
+    export UPWIND_AGENT_EXTRA_CONFIG='${var.upwind_agent_extra_config}'
     apt-get update -y
-    apt-get install -y git
+    apt-get install -y git curl ca-certificates
     git clone --depth 1 --branch "${var.repo_ref}" "${var.repo_url}" /tmp/tj
-    chmod +x /tmp/tj/scripts/install-vm.sh
-    REPO_URL='${var.repo_url}' REPO_REF='${var.repo_ref}' /tmp/tj/scripts/install-vm.sh
+    chmod +x /tmp/tj/scripts/install-vm.sh /tmp/tj/scripts/install-upwind-sensor.sh
+    /tmp/tj/scripts/install-vm.sh
   EOF
 }
 

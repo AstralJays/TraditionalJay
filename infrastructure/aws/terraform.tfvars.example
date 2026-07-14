@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+# Never commit real Upwind credentials.
+
+aws_region     = "us-east-1"
+name_prefix    = "traditionaljay"
+instance_type  = "t3.small"
+
+# Upwind host sensor — installed on first boot when both are set
+upwind_client_id           = "YOUR_UPWIND_CLIENT_ID"
+upwind_client_secret       = "YOUR_UPWIND_CLIENT_SECRET"
+upwind_agent_extra_config  = "scanner-v2=true"
