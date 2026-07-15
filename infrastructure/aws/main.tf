@@ -24,8 +24,8 @@ variable "name_prefix" {
 
 variable "instance_type" {
   type    = string
-  default = "t3.medium"
-  description = "t3.medium+ recommended — Upwind scanner-v2 needs ~7 GB free disk at install."
+  default = "t3.large"
+  description = "t3.large (8 GiB RAM) — Upwind scanner-v2 needs ~7 GiB free memory at install."
 }
 
 variable "root_volume_gb" {

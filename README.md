@@ -68,7 +68,7 @@ curl -s "http://localhost:8080/search?q=wax" \
 
 Pass Upwind credentials via **local** `terraform.tfvars` (gitignored). Cloud-init exports them and `scripts/install-vm.sh` runs `scripts/install-upwind-sensor.sh`.
 
-**Disk:** `scanner-v2=true` needs **~7 GB free** at install time. Default AWS Terraform uses **30 GiB gp3** root + `t3.medium` so the scanner is not skipped (on `t3.small` / 8 GiB root you may see `Skipping scanner installation, requires 7000000 kB`).
+**Memory:** `scanner-v2=true` needs **~7 GiB free RAM** at install time (not disk). Default AWS Terraform uses **`t3.large` (8 GiB)** + **40 GiB gp3** root so the scanner is not skipped (`Skipping scanner installation, requires 7000000 kB` on smaller instances).
 
 ```bash
 curl -s https://get.upwind.io/sensor.sh | \
