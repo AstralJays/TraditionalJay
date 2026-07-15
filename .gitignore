@@ -17,3 +17,5 @@ tools/exploit/*.class
 !*.tfvars.example
 crash.log
 override.tf
+tfplan
+*.tfplan
