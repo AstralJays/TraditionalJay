@@ -1,4 +1,7 @@
 target/
+tools/marshalsec-*.jar
+tools/marshalsec-*.jar.partial
+tools/exploit/*.class
 .idea/
 *.iml
 .classpath
