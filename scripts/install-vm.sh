@@ -104,6 +104,45 @@ systemctl daemon-reload
 systemctl enable --now traditionaljay.service
 echo "TraditionalJay listening on :$LISTEN_PORT"
 
+# On-box Log4Shell attacker (LDAP + Exploit.class HTTP) so /security works with
+# callback 127.0.0.1:1389 — no inbound ports needed on the operator laptop.
+install_onbox_log4shell() {
+  local tools_src="${REPO_ROOT}/tools"
+  if [[ ! -f "${tools_src}/ldap-ref-server.py" ]]; then
+    echo "==> tools/ missing — skipping on-box Log4Shell attacker"
+    return 0
+  fi
+  echo "==> Installing on-box Log4Shell attacker (127.0.0.1:1389 + :8000)"
+  apt-get install -y python3
+  mkdir -p "$APP_DIR/tools/exploit"
+  cp "$tools_src/ldap-ref-server.py" "$tools_src/run-log4shell-onbox.sh" "$APP_DIR/tools/"
+  cp "$tools_src/exploit/Exploit.java" "$APP_DIR/tools/exploit/"
+  chmod +x "$APP_DIR/tools/run-log4shell-onbox.sh" "$APP_DIR/tools/ldap-ref-server.py"
+  javac -d "$APP_DIR/tools/exploit" "$APP_DIR/tools/exploit/Exploit.java"
+  chown -R "$APP_USER:$APP_USER" "$APP_DIR/tools"
+
+  cat >/etc/systemd/system/traditionaljay-log4shell.service <<EOF
+[Unit]
+Description=TraditionalJay on-box Log4Shell LDAP/HTTP attacker (workshop)
+After=network.target traditionaljay.service
+
+[Service]
+Type=simple
+User=$APP_USER
+WorkingDirectory=$APP_DIR/tools
+ExecStart=$APP_DIR/tools/run-log4shell-onbox.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now traditionaljay-log4shell.service
+  echo "==> On-box Log4Shell attacker listening on 127.0.0.1:1389"
+}
+install_onbox_log4shell
+
 # Optional host sensor — skip if cloud-init already installed it.
 if [[ ! -f /etc/upwind/agent.yaml ]]; then
   if [[ -x "${SCRIPT_DIR}/install-upwind-sensor.sh" ]]; then

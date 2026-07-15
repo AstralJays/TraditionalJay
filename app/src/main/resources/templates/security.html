@@ -27,7 +27,8 @@
       <h2>Full chain</h2>
       <p>
         Runs all three steps with short gaps so detections can split cleanly.
-        Point listeners at hosts the VM can reach before you click.
+        Log4Shell defaults to <strong>on-box</strong> LDAP (<code>127.0.0.1:1389</code>) —
+        no laptop firewall ports required. Point C2 at a host the VM can reach.
       </p>
       <label for="ldap">Log4Shell LDAP callback (host:port)</label>
       <input id="ldap" type="text" value="127.0.0.1:1389" />
@@ -37,9 +38,9 @@
         <button id="run-chain" type="button">Run Critical VM Compromise</button>
       </div>
       <ol class="steps">
-        <li><code>./tools/setup-marshalsec.sh &amp;&amp; ./tools/run-log4shell-ldap.sh --codebase-host YOUR_IP</code></li>
-        <li><code>python3 tools/c2-listen.py --port 4444</code></li>
-        <li>Set callbacks to your public IP (or SSH tunnel), then run the story.</li>
+        <li>Log4Shell: leave LDAP at <code>127.0.0.1:1389</code> (on-box attacker).</li>
+        <li>C2: <code>python3 tools/c2-listen.py --port 4444</code> on a reachable host, set callback to that host.</li>
+        <li>Optional laptop LDAP: <code>./tools/run-log4shell-ldap.sh --codebase-host YOUR_IP</code> (needs inbound 1389+8000).</li>
       </ol>
       <pre id="chain-result" class="result" hidden></pre>
     </section>
@@ -58,8 +59,8 @@
       <p class="badge">Step 2 · CVE-2021-44228</p>
       <h2>Log4Shell (full RCE)</h2>
       <p>
-        JNDI LDAP → marshalsec + remote <code>Exploit.class</code>. Start
-        <code>./tools/run-log4shell-ldap.sh --codebase-host YOUR_IP</code> (not the banner-only listener).
+        JNDI LDAP → remote <code>Exploit.class</code>. Default callback
+        <code>127.0.0.1:1389</code> uses the on-box attacker started at boot.
         Success creates <code>/tmp/jss-log4shell-rce</code> on the VM.
       </p>
       <div class="row">
