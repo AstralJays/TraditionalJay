@@ -66,7 +66,9 @@ curl -s "http://localhost:8080/search?q=wax" \
 
 ## Upwind host sensor (first boot)
 
-Pass Upwind credentials via **local** `terraform.tfvars` (gitignored). Cloud-init exports them and `scripts/install-vm.sh` runs `scripts/install-upwind-sensor.sh`:
+Pass Upwind credentials via **local** `terraform.tfvars` (gitignored). Cloud-init exports them and `scripts/install-vm.sh` runs `scripts/install-upwind-sensor.sh`.
+
+**Disk:** `scanner-v2=true` needs **~7 GB free** at install time. Default AWS Terraform uses **30 GiB gp3** root + `t3.medium` so the scanner is not skipped (on `t3.small` / 8 GiB root you may see `Skipping scanner installation, requires 7000000 kB`).
 
 ```bash
 curl -s https://get.upwind.io/sensor.sh | \
@@ -93,7 +95,7 @@ GitHub Actions workflow [`.github/workflows/build.yml`](.github/workflows/build.
 - **push / PR / manual** → Maven package + upload JAR artifact  
 - **tag `v*`** → GitHub Release with the fat JAR  
 
-VMs prefer the latest Release JAR via `scripts/install-vm.sh`, and fall back to an on-box Maven build if no release exists yet.
+VMs prefer the latest Release JAR via `scripts/install-vm.sh`, and fall back to an on-box Maven build if no release exists yet. The installer then **explodes** the fat JAR under `/opt/traditionaljay/BOOT-INF/lib/` and runs `JarLauncher`, so host/agentless SCA can see `log4j-core-2.14.1.jar` on disk (running only `java -jar app.jar` nests Log4j inside a zip and often hides **CVE-2021-44228** from package inventory).
 
 ```bash
 # cut a release (triggers JAR publish)

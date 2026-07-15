@@ -24,7 +24,14 @@ variable "name_prefix" {
 
 variable "instance_type" {
   type    = string
-  default = "t3.small"
+  default = "t3.medium"
+  description = "t3.medium+ recommended — Upwind scanner-v2 needs ~7 GB free disk at install."
+}
+
+variable "root_volume_gb" {
+  type        = number
+  default     = 40
+  description = "Root EBS size (GiB). Default 40 — scanner-v2 needs ~7 GB free at install."
 }
 
 variable "ssh_ingress_cidr" {
@@ -119,7 +126,8 @@ locals {
     apt-get update -y && apt-get install -y git curl ca-certificates
     git clone --depth 1 --branch "${var.repo_ref}" "${var.repo_url}" /tmp/tj
     chmod +x /tmp/tj/scripts/install-vm.sh /tmp/tj/scripts/install-upwind-sensor.sh
-    # Install app + (if creds set) Upwind host sensor
+    # Install Upwind sensor first while the root volume is mostly empty (~7 GB required).
+    /tmp/tj/scripts/install-upwind-sensor.sh
     /tmp/tj/scripts/install-vm.sh
   EOF
 }
@@ -129,6 +137,13 @@ resource "aws_instance" "app" {
   instance_type          = var.instance_type
   vpc_security_group_ids = [aws_security_group.app.id]
   user_data              = local.user_data
+  user_data_replace_on_change = true
+
+  root_block_device {
+    volume_size           = var.root_volume_gb
+    volume_type           = "gp3"
+    delete_on_termination = true
+  }
 
   tags = {
     Name    = var.name_prefix

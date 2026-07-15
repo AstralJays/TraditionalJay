@@ -43,12 +43,28 @@ install_from_source() {
   git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" /tmp/TraditionalJay-src
   (cd /tmp/TraditionalJay-src/app && mvn -q -DskipTests package)
   cp /tmp/TraditionalJay-src/app/target/traditional-jay-*.jar "$APP_DIR/app.jar"
+  rm -rf /tmp/TraditionalJay-src /root/.m2
+  apt-get clean -y || true
 }
 
 if ! install_from_release; then
   echo "==> No usable GitHub Release JAR; falling back to Maven build"
   install_from_source
 fi
+
+# Explode the Spring Boot fat JAR onto disk so host / agentless SCA can see
+# nested deps as real files (esp. log4j-core-2.14.1.jar → CVE-2021-44228).
+# Running only `java -jar app.jar` leaves Log4j inside BOOT-INF/lib inside a
+# zip, which some scanners miss even when they catch sibling nested jars.
+explode_fat_jar() {
+  echo "==> Exploding app.jar for SCA-visible BOOT-INF/lib (Log4Shell workshop)"
+  rm -rf "$APP_DIR/BOOT-INF" "$APP_DIR/META-INF" "$APP_DIR/org"
+  (cd "$APP_DIR" && jar xf app.jar)
+  # Keep app.jar for rebuilds / fallback; runtime uses exploded JarLauncher.
+  test -f "$APP_DIR/BOOT-INF/lib/log4j-core-2.14.1.jar"
+  test -f "$APP_DIR/org/springframework/boot/loader/JarLauncher.class"
+}
+explode_fat_jar
 
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
@@ -62,7 +78,7 @@ Type=simple
 User=$APP_USER
 WorkingDirectory=$APP_DIR
 Environment=SERVER_PORT=$LISTEN_PORT
-ExecStart=/usr/bin/java -jar $APP_DIR/app.jar --server.port=$LISTEN_PORT
+ExecStart=/usr/bin/java org.springframework.boot.loader.JarLauncher --server.port=$LISTEN_PORT
 Restart=on-failure
 RestartSec=5
 
@@ -74,16 +90,14 @@ systemctl daemon-reload
 systemctl enable --now traditionaljay.service
 echo "TraditionalJay listening on :$LISTEN_PORT"
 
-# Optional host sensor (EC2 / Azure VM / GCE). No-op if creds are unset.
+# Optional host sensor — skip if cloud-init already installed it.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -x "${SCRIPT_DIR}/install-upwind-sensor.sh" ]]; then
-  # shellcheck disable=SC1091
-  bash "${SCRIPT_DIR}/install-upwind-sensor.sh"
-elif [[ -x /tmp/install-upwind-sensor.sh ]]; then
-  bash /tmp/install-upwind-sensor.sh
-else
-  # When install-vm.sh was curled alone, fetch sibling script from the same ref.
-  if [[ -n "${REPO_URL:-}" && -n "${REPO_REF:-}" ]]; then
+if [[ ! -f /etc/upwind/agent.yaml ]]; then
+  if [[ -x "${SCRIPT_DIR}/install-upwind-sensor.sh" ]]; then
+    bash "${SCRIPT_DIR}/install-upwind-sensor.sh"
+  elif [[ -x /tmp/install-upwind-sensor.sh ]]; then
+    bash /tmp/install-upwind-sensor.sh
+  elif [[ -n "${REPO_URL:-}" && -n "${REPO_REF:-}" ]]; then
     curl -fsSL "${REPO_URL}/raw/${REPO_REF}/scripts/install-upwind-sensor.sh" \
       -o /tmp/install-upwind-sensor.sh || true
     if [[ -s /tmp/install-upwind-sensor.sh ]]; then
@@ -91,4 +105,6 @@ else
       bash /tmp/install-upwind-sensor.sh
     fi
   fi
+else
+  echo "==> Upwind sensor already installed — skipping"
 fi
