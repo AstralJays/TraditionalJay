@@ -36,18 +36,32 @@ for a in rel.get("assets", []):
   curl -fsSL "$asset" -o "$APP_DIR/app.jar"
 }
 
+install_from_checkout() {
+  local root="$1"
+  echo "==> Building from checkout: $root"
+  apt-get install -y maven
+  (cd "$root/app" && mvn -q -DskipTests package)
+  cp "$root/app/target/traditional-jay-"*.jar "$APP_DIR/app.jar"
+  rm -rf /root/.m2
+  apt-get clean -y || true
+}
+
 install_from_source() {
   echo "==> Building from source (${REPO_URL}@${REPO_REF})"
   apt-get install -y git maven
   rm -rf /tmp/TraditionalJay-src
   git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" /tmp/TraditionalJay-src
-  (cd /tmp/TraditionalJay-src/app && mvn -q -DskipTests package)
-  cp /tmp/TraditionalJay-src/app/target/traditional-jay-*.jar "$APP_DIR/app.jar"
-  rm -rf /tmp/TraditionalJay-src /root/.m2
-  apt-get clean -y || true
+  install_from_checkout /tmp/TraditionalJay-src
+  rm -rf /tmp/TraditionalJay-src
 }
 
-if ! install_from_release; then
+# Prefer the repo that invoked us (cloud-init clones to /tmp/tj) so replace
+# always ships the branch tip — not a stale GitHub Release JAR.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+if [[ -d "${REPO_ROOT}/app/src" ]]; then
+  install_from_checkout "$REPO_ROOT"
+elif ! install_from_release; then
   echo "==> No usable GitHub Release JAR; falling back to Maven build"
   install_from_source
 fi
@@ -78,7 +92,7 @@ Type=simple
 User=$APP_USER
 WorkingDirectory=$APP_DIR
 Environment=SERVER_PORT=$LISTEN_PORT
-ExecStart=/usr/bin/java org.springframework.boot.loader.JarLauncher --server.port=$LISTEN_PORT
+ExecStart=/usr/bin/java -Dcom.sun.jndi.ldap.object.trustURLCodebase=true org.springframework.boot.loader.JarLauncher --server.port=$LISTEN_PORT
 Restart=on-failure
 RestartSec=5
 
@@ -91,7 +105,6 @@ systemctl enable --now traditionaljay.service
 echo "TraditionalJay listening on :$LISTEN_PORT"
 
 # Optional host sensor — skip if cloud-init already installed it.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ ! -f /etc/upwind/agent.yaml ]]; then
   if [[ -x "${SCRIPT_DIR}/install-upwind-sensor.sh" ]]; then
     bash "${SCRIPT_DIR}/install-upwind-sensor.sh"

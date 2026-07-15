@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Minimal LDAP banner listener for Log4Shell workshop demos.
 
-Does not serve a serialized Java payload — it only proves the vulnerable
-app dialed out. Use on a host reachable from the TraditionalJay VM.
+Probe-only: proves the vulnerable app dialed out. For full RCE in the sandbox
+use tools/run-log4shell-ldap.sh instead.
 
   python3 tools/ldap-listen.py --port 1389
 """
