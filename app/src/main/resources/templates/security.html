@@ -38,8 +38,8 @@
         <button id="run-chain" type="button">Run Critical VM Compromise</button>
       </div>
       <ol class="steps">
-        <li>Log4Shell: leave LDAP at <code>127.0.0.1:1389</code> (on-box attacker).</li>
-        <li>C2: <code>python3 tools/c2-listen.py --port 4444</code> on a reachable host, set callback to that host.</li>
+        <li>Leave LDAP + C2 at <code>127.0.0.1</code> — on-box attackers start at boot.</li>
+        <li>Optional external C2: <code>python3 tools/c2-listen.py --port 4444</code> on a reachable host.</li>
         <li>Optional laptop LDAP: <code>./tools/run-log4shell-ldap.sh --codebase-host YOUR_IP</code> (needs inbound 1389+8000).</li>
       </ol>
       <pre id="chain-result" class="result" hidden></pre>

@@ -143,7 +143,7 @@ public class ShopController {
       pool.shutdownNow();
     }
 
-    Thread.sleep(lookupFinished ? 2500 : 200);
+    Thread.sleep(lookupFinished ? 4000 : 200);
     Path marker = Path.of("/tmp/jss-log4shell-rce");
     Path idFile = Path.of("/tmp/jss-log4shell-id.txt");
     boolean rceConfirmed = Files.exists(marker);

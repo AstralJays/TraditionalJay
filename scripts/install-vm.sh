@@ -104,27 +104,33 @@ systemctl daemon-reload
 systemctl enable --now traditionaljay.service
 echo "TraditionalJay listening on :$LISTEN_PORT"
 
-# On-box Log4Shell attacker (LDAP + Exploit.class HTTP) so /security works with
-# callback 127.0.0.1:1389 — no inbound ports needed on the operator laptop.
-install_onbox_log4shell() {
+# On-box Log4Shell + C2 listeners so /security works with 127.0.0.1 callbacks
+# (no inbound ports needed on the operator laptop).
+install_onbox_attackers() {
   local tools_src="${REPO_ROOT}/tools"
-  if [[ ! -f "${tools_src}/ldap-ref-server.py" ]]; then
-    echo "==> tools/ missing — skipping on-box Log4Shell attacker"
+  if [[ ! -f "${tools_src}/run-log4shell-onbox.sh" ]]; then
+    echo "==> tools/ missing — skipping on-box attackers"
     return 0
   fi
-  echo "==> Installing on-box Log4Shell attacker (127.0.0.1:1389 + :8000)"
+  echo "==> Installing on-box Log4Shell + C2 attackers"
   apt-get install -y python3
   mkdir -p "$APP_DIR/tools/exploit"
-  cp "$tools_src/ldap-ref-server.py" "$tools_src/run-log4shell-onbox.sh" "$APP_DIR/tools/"
+  cp "$tools_src/run-log4shell-onbox.sh" "$tools_src/run-c2-onbox.sh" "$tools_src/c2-listen.py" \
+    "$tools_src/ldap-ref-server.py" "$APP_DIR/tools/" 2>/dev/null || true
   cp "$tools_src/exploit/Exploit.java" "$APP_DIR/tools/exploit/"
-  chmod +x "$APP_DIR/tools/run-log4shell-onbox.sh" "$APP_DIR/tools/ldap-ref-server.py"
+  chmod +x "$APP_DIR/tools/"*.sh "$APP_DIR/tools/"*.py 2>/dev/null || true
   javac -d "$APP_DIR/tools/exploit" "$APP_DIR/tools/exploit/Exploit.java"
+
+  echo "==> Prefetching marshalsec for on-box LDAP"
+  curl -fL "https://raw.githubusercontent.com/kozmer/log4j-shell-poc/main/target/marshalsec-0.0.3-SNAPSHOT-all.jar" \
+    -o "$APP_DIR/tools/marshalsec-0.0.3-SNAPSHOT-all.jar"
+
   chown -R "$APP_USER:$APP_USER" "$APP_DIR/tools"
 
   cat >/etc/systemd/system/traditionaljay-log4shell.service <<EOF
 [Unit]
 Description=TraditionalJay on-box Log4Shell LDAP/HTTP attacker (workshop)
-After=network.target traditionaljay.service
+After=network.target
 
 [Service]
 Type=simple
@@ -137,11 +143,29 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
+
+  cat >/etc/systemd/system/traditionaljay-c2.service <<EOF
+[Unit]
+Description=TraditionalJay on-box C2 banner listener (workshop)
+After=network.target
+
+[Service]
+Type=simple
+User=$APP_USER
+WorkingDirectory=$APP_DIR/tools
+ExecStart=$APP_DIR/tools/run-c2-onbox.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
   systemctl daemon-reload
-  systemctl enable --now traditionaljay-log4shell.service
-  echo "==> On-box Log4Shell attacker listening on 127.0.0.1:1389"
+  systemctl enable --now traditionaljay-log4shell.service traditionaljay-c2.service
+  echo "==> On-box attackers: LDAP :1389 + HTTP :8000 + C2 :4444"
 }
-install_onbox_log4shell
+install_onbox_attackers
 
 # Optional host sensor — skip if cloud-init already installed it.
 if [[ ! -f /etc/upwind/agent.yaml ]]; then
