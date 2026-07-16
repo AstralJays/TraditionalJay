@@ -271,20 +271,21 @@ public class ShopController {
     out.put("ldap_server",
         "Prefer on-box: leave callback 127.0.0.1:1389. PoC uses GET /search with JNDI User-Agent "
             + "(same as manual shop traffic).");
-    out.put("narrative",
-        rceConfirmed
-            ? "Log4Shell via GET /search (User-Agent / X-Api-Version JNDI) — RCE marker on the VM."
-            : lookupError != null
-                ? lookupError
-                : "JNDI injected through shop /search headers. Ensure on-box LDAP is up "
-                    + "(systemctl status traditionaljay-log4shell).");
     out.put("signals", List.of(
         "HTTP GET /search with JNDI in User-Agent",
         "Java process on VM",
         "Outbound LDAP (tcp/1389) for JNDI",
-        rceConfirmed ? "RCE via Log4Shell (marker file on host)" : "JNDI lookup (check on-box attacker)",
+        rceConfirmed ? "RCE via Log4Shell (marker + id on host)" : "JNDI lookup (check on-box attacker)",
+        "Interactive bash / PTY spawned from Exploit.class (~45s)",
         "Log4j 2.14.1 SCA finding"
     ));
+    out.put("narrative",
+        rceConfirmed
+            ? "Log4Shell via GET /search (User-Agent / X-Api-Version JNDI) — RCE marker + interactive bash on the VM."
+            : lookupError != null
+                ? lookupError
+                : "JNDI injected through shop /search headers. Ensure on-box LDAP is up "
+                    + "(systemctl status traditionaljay-log4shell).");
     return out;
   }
 

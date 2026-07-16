@@ -19,3 +19,4 @@ crash.log
 override.tf
 tfplan
 *.tfplan
+*.pem

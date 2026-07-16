@@ -2,6 +2,8 @@
 # Never commit real Upwind credentials.
 
 aws_region      = "us-east-1"
+# Always Surfshop — do not use the default/Perkins profile.
+aws_profile     = "surfshop"
 name_prefix     = "traditionaljay"
 instance_type   = "t3.large"
 root_volume_gb  = 30
